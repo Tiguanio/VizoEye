@@ -5,28 +5,21 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.KeyEvent
 import android.util.Log
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
-import java.util.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.camera.core.Camera
-import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vizoeye.data.remote.GeminiApiService
 import com.example.vizoeye.data.remote.OpenRouterApiService
@@ -46,14 +39,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private var imageCapture: ImageCapture? = null
     private var hasCameraPermission by mutableStateOf(false)
-    
-    // TTS variables
-    private var textToSpeech: TextToSpeech? = null
+
     private var isDetailedMode by mutableStateOf(false)
-    private var speechRate by mutableStateOf(2.0f)
-    private var isSpeaking by mutableStateOf(false)
-    private var isPaused by mutableStateOf(false)
     private lateinit var settingsManager: SettingsManager
+    private lateinit var ttsManager: TtsManager
     private var showSettings by mutableStateOf(false)
 
     private lateinit var viewModel: MainViewModel
@@ -61,6 +50,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settingsManager = SettingsManager(this)
+        ttsManager = TtsManager(this)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Инициализация зависимостей (DI)
@@ -68,9 +58,6 @@ class MainActivity : ComponentActivity() {
         val geminiService = GeminiApiService(settingsManager)
         val aiRepository = AiRepositoryImpl(openRouterService, geminiService)
         val analyzeImageUseCase = AnalyzeImageUseCase(aiRepository)
-        
-        // Инициализация TTS
-        initializeTTS()
 
         checkPermissions()
 
@@ -80,10 +67,13 @@ class MainActivity : ComponentActivity() {
                     factory = MainViewModelFactory(analyzeImageUseCase)
                 )
 
+                val isSpeaking by ttsManager.isSpeaking.collectAsStateWithLifecycle()
+                val isPaused by ttsManager.isPaused.collectAsStateWithLifecycle()
+
                 // Подписка на результаты анализа для озвучки
                 LaunchedEffect(viewModel.description.value) {
                     if (viewModel.description.value.isNotEmpty()) {
-                        speakText(viewModel.description.value)
+                        ttsManager.speak(viewModel.description.value)
                     }
                 }
 
@@ -94,20 +84,20 @@ class MainActivity : ComponentActivity() {
                     description = viewModel.description.value,
                     status = viewModel.status.value,
                     onImageCaptureReady = { imageCapture = it },
-                    onPauseSpeech = { pauseSpeech() },
-                    onResumeSpeech = { resumeSpeech() },
+                    onPauseSpeech = { ttsManager.pause() },
+                    onResumeSpeech = { ttsManager.resume(viewModel.description.value) },
                     isSpeaking = isSpeaking,
                     isPaused = isPaused,
                     isAnalyzing = viewModel.isAnalyzing.value,
-                    onSpeedUp = { changeSpeechRate(true) },
-                    onSpeedDown = { changeSpeechRate(false) },
+                    onSpeedUp = { ttsManager.speechRate += 0.5f },
+                    onSpeedDown = { ttsManager.speechRate -= 0.5f },
                     onToggleMode = { toggleDetailedMode() },
                     onSwitchService = {
                         AiServices.switchToNextService()
                     },
                     currentService = AiServices.getCurrentService().displayName,
                     isDetailedMode = isDetailedMode,
-                    currentSpeed = speechRate,
+                    currentSpeed = ttsManager.speechRate,
                     onOpenSettings = { showSettings = true }
                 )
 
@@ -163,78 +153,6 @@ class MainActivity : ComponentActivity() {
         takePhoto()
     }
 
-    private fun initializeTTS() {
-        textToSpeech = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech?.setLanguage(Locale("ru"))
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e(TAG, "Русский язык не поддерживается")
-                } else {
-                    Log.d(TAG, "TTS инициализирован с русским языком")
-                }
-            } else {
-                Log.e(TAG, "Ошибка инициализации TTS: $status")
-            }
-        }
-
-        textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                isSpeaking = true
-            }
-
-            override fun onDone(utteranceId: String?) {
-                isSpeaking = false
-            }
-
-            override fun onError(utteranceId: String?) {
-                isSpeaking = false
-            }
-        })
-    }
-
-    private fun speakText(text: String) {
-        if (isSpeaking && !isPaused) {
-            textToSpeech?.stop()
-        }
-
-        // Убираем символы *, # и другие спецсимволы из речи
-        val cleanText = text.replace(Regex("[*#]"), "").trim()
-
-        val params = Bundle().apply {
-            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "vizoeye_utterance")
-            // Используем настроенную скорость речи
-            putFloat("speech_rate", speechRate)
-            // Уменьшаем паузы между словами
-            putFloat("pitch", 1.0f)
-        }
-
-        textToSpeech?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, params, "vizoeye_utterance")
-        isSpeaking = true
-        isPaused = false
-    }
-
-    private fun pauseSpeech() {
-        if (isSpeaking && !isPaused) {
-            textToSpeech?.stop()
-            isPaused = true
-        }
-    }
-
-    private fun resumeSpeech() {
-        if (isPaused && viewModel.description.value.isNotEmpty()) {
-            speakText(viewModel.description.value)
-        }
-    }
-
-    private fun changeSpeechRate(increase: Boolean) {
-        speechRate = if (increase) {
-            minOf(speechRate + 0.5f, 3.0f)  // Максимальная скорость 3.0
-        } else {
-            maxOf(speechRate - 0.5f, 0.5f)  // Минимальная скорость 0.5
-        }
-        Log.d(TAG, "Speech rate changed to: $speechRate")
-    }
-
     private fun toggleDetailedMode() {
         isDetailedMode = !isDetailedMode
         Log.d(TAG, "Detailed mode changed to: $isDetailedMode")
@@ -248,7 +166,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Используем cameraExecutor для обратного вызова, но логику передаем в ViewModel
         try {
             Log.d(TAG, "takePhoto: создаю файл фото")
             val photoFile = createImageFile()
@@ -262,7 +179,6 @@ class MainActivity : ComponentActivity() {
                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                         Log.d(TAG, "takePhoto: фото сохранено: ${photoFile.absolutePath}")
                         Log.d(TAG, "takePhoto: начинаю анализ изображения")
-                        // Передаем файл в ViewModel для анализа
                         viewModel.analyzeImage(photoFile, isDetailedMode)
                     }
 
@@ -287,8 +203,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
-        textToSpeech?.stop()
-        textToSpeech?.shutdown()
+        ttsManager.release()
     }
 }
 
