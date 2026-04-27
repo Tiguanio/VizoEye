@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
 
                 val isSpeaking by ttsManager.isSpeaking.collectAsStateWithLifecycle()
                 val isPaused by ttsManager.isPaused.collectAsStateWithLifecycle()
+                val currentSpeed by ttsManager.speechRate.collectAsStateWithLifecycle()
                 val imageCapture by cameraManager.imageCapture.collectAsStateWithLifecycle()
 
                 // Подписка на результаты анализа для озвучки
@@ -82,15 +83,15 @@ class MainActivity : ComponentActivity() {
                     isSpeaking = isSpeaking,
                     isPaused = isPaused,
                     isAnalyzing = viewModel.isAnalyzing.value,
-                    onSpeedUp = { ttsManager.speechRate += 0.5f },
-                    onSpeedDown = { ttsManager.speechRate -= 0.5f },
+                    onSpeedUp = { ttsManager.changeSpeed(true) },
+                    onSpeedDown = { ttsManager.changeSpeed(false) },
                     onToggleMode = { toggleDetailedMode() },
                     onSwitchService = {
                         AiServices.switchToNextService()
                     },
                     currentService = AiServices.getCurrentService().displayName,
                     isDetailedMode = isDetailedMode,
-                    currentSpeed = ttsManager.speechRate,
+                    currentSpeed = currentSpeed,
                     onOpenSettings = { showSettings = true },
                     cameraManager = cameraManager,
                     viewModel = viewModel

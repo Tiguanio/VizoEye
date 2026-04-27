@@ -21,14 +21,19 @@ class TtsManager(private val context: Context) {
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused
 
-    var speechRate: Float = 2.0f
-        set(value) {
-            field = value.coerceIn(0.5f, 3.0f)
-            Log.d(TAG, "Speech rate changed to: $field")
-        }
+    private val _speechRate = MutableStateFlow(1.0f)
+    val speechRate: StateFlow<Float> = _speechRate
 
     init {
         initializeTTS()
+    }
+
+    fun changeSpeed(increase: Boolean) {
+        val current = _speechRate.value
+        val newRate = if (increase) current + 0.5f else current - 0.5f
+        _speechRate.value = newRate.coerceIn(0.5f, 3.0f)
+        textToSpeech?.setSpeechRate(_speechRate.value)
+        Log.d(TAG, "Speech rate changed to: ${_speechRate.value}")
     }
 
     private fun initializeTTS() {
