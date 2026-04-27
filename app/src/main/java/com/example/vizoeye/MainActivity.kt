@@ -7,16 +7,12 @@ import android.view.KeyEvent
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,22 +23,17 @@ import com.example.vizoeye.data.repository.AiRepositoryImpl
 import com.example.vizoeye.domain.usecase.AnalyzeImageUseCase
 import com.example.vizoeye.ui.main.MainViewModel
 import com.example.vizoeye.ui.main.MainViewModelFactory
-import kotlinx.coroutines.*
-import java.io.File
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 private const val TAG = "VizoEyeAI"
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var cameraExecutor: ExecutorService
-    private var imageCapture: ImageCapture? = null
     private var hasCameraPermission by mutableStateOf(false)
-
     private var isDetailedMode by mutableStateOf(false)
+    
     private lateinit var settingsManager: SettingsManager
     private lateinit var ttsManager: TtsManager
+    private lateinit var cameraManager: CameraManager
     private var showSettings by mutableStateOf(false)
 
     private lateinit var viewModel: MainViewModel
@@ -51,7 +42,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         settingsManager = SettingsManager(this)
         ttsManager = TtsManager(this)
-        cameraExecutor = Executors.newSingleThreadExecutor()
+        cameraManager = CameraManager(this)
 
         // Инициализация зависимостей (DI)
         val openRouterService = OpenRouterApiService(settingsManager)
@@ -69,6 +60,7 @@ class MainActivity : ComponentActivity() {
 
                 val isSpeaking by ttsManager.isSpeaking.collectAsStateWithLifecycle()
                 val isPaused by ttsManager.isPaused.collectAsStateWithLifecycle()
+                val imageCapture by cameraManager.imageCapture.collectAsStateWithLifecycle()
 
                 // Подписка на результаты анализа для озвучки
                 LaunchedEffect(viewModel.description.value) {
@@ -83,7 +75,6 @@ class MainActivity : ComponentActivity() {
                     onPermissionRequest = { checkPermissions() },
                     description = viewModel.description.value,
                     status = viewModel.status.value,
-                    onImageCaptureReady = { imageCapture = it },
                     onPauseSpeech = { ttsManager.pause() },
                     onResumeSpeech = { ttsManager.resume(viewModel.description.value) },
                     isSpeaking = isSpeaking,
@@ -98,7 +89,9 @@ class MainActivity : ComponentActivity() {
                     currentService = AiServices.getCurrentService().displayName,
                     isDetailedMode = isDetailedMode,
                     currentSpeed = ttsManager.speechRate,
-                    onOpenSettings = { showSettings = true }
+                    onOpenSettings = { showSettings = true },
+                    cameraManager = cameraManager,
+                    viewModel = viewModel
                 )
 
                 if (showSettings) {
@@ -117,7 +110,7 @@ class MainActivity : ComponentActivity() {
                     keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) &&
             event?.repeatCount == 0) {
 
-            takePhoto()
+            triggerDescription()
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -150,7 +143,16 @@ class MainActivity : ComponentActivity() {
             return
         }
         Log.d(TAG, "triggerDescription: кнопка нажата")
-        takePhoto()
+        
+        cameraManager.takePhoto(
+            onImageCaptured = { file ->
+                Log.d(TAG, "Photo captured, starting analysis")
+                viewModel.analyzeImage(file, isDetailedMode)
+            },
+            onError = { exception ->
+                Log.e(TAG, "Camera error: ${exception.message}")
+            }
+        )
     }
 
     private fun toggleDetailedMode() {
@@ -159,50 +161,9 @@ class MainActivity : ComponentActivity() {
         viewModel.status.value = if (isDetailedMode) "Режим: ПОДРОБНЫЙ" else "Режим: КРАТКИЙ"
     }
 
-    private fun takePhoto() {
-        Log.d(TAG, "takePhoto: начало захвата фото")
-        val imageCapture = imageCapture ?: run {
-            Log.e(TAG, "takePhoto: imageCapture is null")
-            return
-        }
-
-        try {
-            Log.d(TAG, "takePhoto: создаю файл фото")
-            val photoFile = createImageFile()
-            val outputFileOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-            Log.d(TAG, "takePhoto: начинаю захват фото")
-            imageCapture.takePicture(
-                outputFileOptions,
-                cameraExecutor,
-                object : ImageCapture.OnImageSavedCallback {
-                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        Log.d(TAG, "takePhoto: фото сохранено: ${photoFile.absolutePath}")
-                        Log.d(TAG, "takePhoto: начинаю анализ изображения")
-                        viewModel.analyzeImage(photoFile, isDetailedMode)
-                    }
-
-                    override fun onError(exception: ImageCaptureException) {
-                        Log.e(TAG, "takePhoto: ошибка сохранения фото: ${exception.message}")
-                        println("Ошибка сохранения фото: ${exception.message}")
-                    }
-                }
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "takePhoto: ошибка захвата фото: ${e.message}")
-            println("Ошибка захвата фото: ${e.message}")
-        }
-    }
-
-    private fun createImageFile(): File {
-        val timestamp = System.currentTimeMillis()
-        val storageDir = getExternalFilesDir("Pictures")
-        return File.createTempFile("vizoeye_${timestamp}_", ".jpg", storageDir)
-    }
-
     override fun onDestroy() {
         super.onDestroy()
-        cameraExecutor.shutdown()
+        cameraManager.shutdown()
         ttsManager.release()
     }
 }
@@ -265,7 +226,6 @@ fun CameraScreen(
     isSpeaking: Boolean,
     isPaused: Boolean,
     isAnalyzing: Boolean,
-    onImageCaptureReady: (ImageCapture?) -> Unit,
     onSpeedUp: () -> Unit,
     onSpeedDown: () -> Unit,
     onToggleMode: () -> Unit,
@@ -273,9 +233,10 @@ fun CameraScreen(
     onOpenSettings: () -> Unit,
     currentService: String,
     isDetailedMode: Boolean,
-    currentSpeed: Float
+    currentSpeed: Float,
+    cameraManager: CameraManager,
+    viewModel: MainViewModel
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     if (!hasPermission) {
@@ -312,38 +273,14 @@ fun CameraScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Интеграция CameraX через AndroidView
         AndroidView(
             factory = { ctx ->
                 val previewView = androidx.camera.view.PreviewView(ctx).apply {
                     scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
                 }
-                
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-                    
-                    val imageCapture = ImageCapture.Builder().build()
-                    onImageCaptureReady(imageCapture)
-                    
-                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                    
-                    try {
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            imageCapture
-                        )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Use case binding failed", e)
-                    }
-                }, ContextCompat.getMainExecutor(ctx))
-                
+                // Делегируем настройку камеры менеджеру
+                cameraManager.bindCamera(previewView, lifecycleOwner)
                 previewView
             },
             modifier = Modifier.fillMaxSize()
