@@ -27,7 +27,7 @@ class GeminiApiService(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun analyzeImage(imageFile: File, isDetailedMode: Boolean): String? {
+    suspend fun analyzeImage(imageFile: File, isDetailedMode: Boolean): String {
         val base64Image = encodeImageToBase64(imageFile)
         val prompt = if (isDetailedMode) {
             "Опиши подробно что изображено на фотографии. ВНИМАНИЕ: если на фото есть текст, сначала прочитай весь текст дословно, потом опиши остальное содержимое. Если это документ с несколькими страницами, опиши что видишь и перечисли основные разделы. Ответ на русском языке."
@@ -54,37 +54,40 @@ class GeminiApiService(
             })
         }
 
-        return try {
-            val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
-            val apiKey = settingsManager.geminiApiKey
-            val requestUrl = "${ApiConfig.GEMINI_URL}?key=$apiKey"
+        val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
+        val apiKey = settingsManager.geminiApiKey
+        val requestUrl = "${ApiConfig.GEMINI_URL}?key=$apiKey"
 
-            val request = Request.Builder()
-                .url(requestUrl)
-                .post(requestBody)
-                .addHeader("Content-Type", "application/json")
-                .build()
+        val request = Request.Builder()
+            .url(requestUrl)
+            .post(requestBody)
+            .addHeader("Content-Type", "application/json")
+            .build()
 
-            val response = httpClient.newCall(request).execute()
+        val response = httpClient.newCall(request).execute()
 
-            if (response.isSuccessful) {
-                val responseBody = response.body?.string()
-                val jsonResponse = JSONObject(responseBody ?: "")
-                jsonResponse
-                    .getJSONArray("candidates")
-                    .getJSONObject(0)
-                    .getJSONObject("content")
-                    .getJSONArray("parts")
-                    .getJSONObject(0)
-                    .getString("text")
-            } else {
-                Log.e(TAG, "Gemini API Error: ${response.code}")
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Gemini analysis error", e)
-            null
+        if (!response.isSuccessful) {
+            val errorBody = response.body?.string() ?: "Unknown error"
+            Log.e(TAG, "Gemini API Error: ${response.code}, Body: $errorBody")
+            throw Exception("API Error ${response.code}: $errorBody")
         }
+
+        val responseBody = response.body?.string()
+        val jsonResponse = JSONObject(responseBody ?: "")
+        
+        // Проверка на наличие ошибок в ответе Gemini (иногда они приходят в поле error даже при 200 OK)
+        if (jsonResponse.has("error")) {
+            val error = jsonResponse.getJSONObject("error")
+            throw Exception("Gemini Error: ${error.getString("message")}")
+        }
+
+        return jsonResponse
+            .getJSONArray("candidates")
+            .getJSONObject(0)
+            .getJSONObject("content")
+            .getJSONArray("parts")
+            .getJSONObject(0)
+            .getString("text")
     }
 
     private fun encodeImageToBase64(imageFile: File): String {

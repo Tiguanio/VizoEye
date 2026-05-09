@@ -12,9 +12,13 @@ class AiRepositoryImpl(
     private val geminiService: GeminiApiService
 ) : AiRepository {
 
-    override suspend fun analyzeImage(imageFile: File, isDetailedMode: Boolean): AnalysisResult {
+    override suspend fun analyzeImage(
+        imageFile: File,
+        isDetailedMode: Boolean,
+        service: AiServices.AiService
+    ): AnalysisResult {
         return try {
-            val result = when (AiServices.getCurrentService()) {
+            val result = when (service) {
                 AiServices.AiService.GEMINI -> geminiService.analyzeImage(imageFile, isDetailedMode)
                 AiServices.AiService.OPENROUTER -> openRouterService.analyzeImage(imageFile, isDetailedMode)
             }

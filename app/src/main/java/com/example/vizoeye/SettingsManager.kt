@@ -1,11 +1,20 @@
 package com.example.vizoeye
 
 import android.content.Context
-import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 
-class SettingsManager(context: Context) {
-    // Используем vizoeye_prefs для консистентности брендинга
-    private val prefs: SharedPreferences = context.getSharedPreferences("vizoeye_prefs", Context.MODE_PRIVATE)
+class SettingsManager(private val context: Context) {
+    
+    private val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+    
+    private val prefs = EncryptedSharedPreferences.create(
+        "vizoeye_secure_prefs",
+        masterKeyAlias,
+        context,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
 
     companion object {
         private const val KEY_GEMINI_API = "gemini_api_key"
