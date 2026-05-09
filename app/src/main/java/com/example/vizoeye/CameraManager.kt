@@ -2,6 +2,7 @@ package com.example.vizoeye
 
 import android.content.Context
 import android.util.Log
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -21,7 +22,7 @@ private const val TAG = "CameraManager"
 class CameraManager(private val context: Context) {
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    
+
     private val _imageCapture = MutableStateFlow<ImageCapture?>(null)
     val imageCapture: StateFlow<ImageCapture?> = _imageCapture
 
@@ -37,8 +38,12 @@ class CameraManager(private val context: Context) {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-                // Настраиваем захват изображения
-                val imageCapture = ImageCapture.Builder().build()
+                // Настраиваем захват изображения с ограничением разрешения для скорости
+                // 1280x720 достаточно для распознавания объектов и текста крупным планом
+                val imageCapture = ImageCapture.Builder()
+                    .setTargetResolution(Size(1280, 720))
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .build()
                 _imageCapture.value = imageCapture
 
                 // Выбираем заднюю камеру
@@ -46,7 +51,7 @@ class CameraManager(private val context: Context) {
 
                 // Отвязываем все предыдущие use cases перед привязкой новых
                 cameraProvider.unbindAll()
-                
+
                 // Привязываем к lifecycle
                 cameraProvider.bindToLifecycle(
                     lifecycleOwner,
@@ -61,6 +66,9 @@ class CameraManager(private val context: Context) {
     }
 
     fun takePhoto(onImageCaptured: (File) -> Unit, onError: (Exception) -> Unit) {
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "[PERF] takePhoto called")
+        
         val capture = _imageCapture.value ?: run {
             onError(IllegalStateException("Camera not ready"))
             return
@@ -78,7 +86,8 @@ class CameraManager(private val context: Context) {
             cameraExecutor,
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    Log.d(TAG, "Photo saved: ${photoFile.absolutePath}")
+                    val saveTime = System.currentTimeMillis()
+                    Log.d(TAG, "[PERF] Photo saved in ${saveTime - startTime}ms: ${photoFile.absolutePath}")
                     onImageCaptured(photoFile)
                 }
 

@@ -18,3 +18,7 @@ Thumbs.db
 # Git
 *.pyc
 __pycache__/
+
+VizoEye fast stable/
+VizoEye fast stable.apk
+*.apk

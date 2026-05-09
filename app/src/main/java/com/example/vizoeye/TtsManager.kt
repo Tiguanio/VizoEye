@@ -13,7 +13,8 @@ private const val TAG = "TtsManager"
 class TtsManager(private val context: Context) {
 
     private var textToSpeech: TextToSpeech? = null
-    
+    private var speakStartTime: Long = 0L
+
     // Состояние речи для реактивного обновления UI
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking
@@ -54,50 +55,39 @@ class TtsManager(private val context: Context) {
             override fun onStart(utteranceId: String?) {
                 _isSpeaking.value = true
                 _isPaused.value = false
+                Log.d(TAG, "[PERF] TTS started speaking after ${System.currentTimeMillis() - speakStartTime}ms")
             }
 
             override fun onDone(utteranceId: String?) {
                 _isSpeaking.value = false
                 _isPaused.value = false
+                Log.d(TAG, "[PERF] TTS finished speaking")
             }
 
+            @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 _isSpeaking.value = false
                 _isPaused.value = false
+                Log.e(TAG, "TTS Error")
             }
         })
     }
 
     fun speak(text: String) {
-        // Если уже говорит и не на паузе — останавливаем предыдущее
-        if (_isSpeaking.value && !_isPaused.value) {
-            textToSpeech?.stop()
-        }
-
-        // Очищаем текст от символов разметки ИИ
-        val cleanText = text.replace(Regex("[*#]"), " ").replace(Regex("\\s+"), " ").trim()
-
-        if (cleanText.isEmpty()) return
-
-        textToSpeech?.speak(
-            cleanText,
-            TextToSpeech.QUEUE_FLUSH,
-            null,
-            "vizoeye_utterance"
-        )
+        speakStartTime = System.currentTimeMillis()
+        Log.d(TAG, "[PERF] TTS speak() called for text length: ${text.length}")
+        textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id")
     }
 
     fun pause() {
-        if (_isSpeaking.value && !_isPaused.value) {
-            textToSpeech?.stop()
-            _isPaused.value = true
-        }
+        textToSpeech?.stop()
+        _isPaused.value = true
+        _isSpeaking.value = false
     }
 
-    fun resume(lastText: String) {
-        if (_isPaused.value) {
-            speak(lastText)
-        }
+    fun resume(text: String) {
+        _isPaused.value = false
+        speak(text)
     }
 
     fun release() {
