@@ -1,7 +1,8 @@
 package com.example.vizoeye
 
 import android.app.Application
-import dagger.hilt.android.HiltAndroidApp
 
-@HiltAndroidApp
-class VizoEyeApplication : Application()
+class VizoEyeApplication : Application() {
+    // Глобальный доступ к контейнеру зависимостей
+    val container by lazy { AppContainer(this) }
+}

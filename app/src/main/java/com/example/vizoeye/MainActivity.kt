@@ -16,32 +16,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.activity.viewModels
 import com.example.vizoeye.ui.main.MainViewModel
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
 private const val TAG = "VizoEyeAI"
 
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    @Inject
-    lateinit var cameraManager: CameraManager
+    private val appContainer by lazy { 
+        val start = System.currentTimeMillis()
+        val container = (application as VizoEyeApplication).container
+        Log.d(TAG, "[PERF] AppContainer init: ${System.currentTimeMillis() - start} ms")
+        container
+    }
 
-    @Inject
-    lateinit var ttsManager: TtsManager
+    private lateinit var viewModel: MainViewModel
 
-    @Inject
-    lateinit var settingsManager: SettingsManager
-
-    @Inject
-    lateinit var soundManager: SoundManager
-
-    private val viewModel: MainViewModel by viewModels()
+    private val cameraManager get() = appContainer.cameraManager
+    private val ttsManager get() = appContainer.ttsManager
+    private val settingsManager get() = appContainer.settingsManager
+    private val soundManager get() = appContainer.soundManager
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -54,9 +49,27 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val activityStart = System.currentTimeMillis()
+        Log.d(TAG, "[PERF] Activity onCreate START")
         super.onCreate(savedInstanceState)
 
+        // Инициализируем ViewModel вручную
+        val vmStart = System.currentTimeMillis()
+        viewModel = ViewModelProvider(this, object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                return MainViewModel(
+                    analyzeImageUseCase = appContainer.analyzeImageUseCase,
+                    ttsManager = appContainer.ttsManager,
+                    soundManager = appContainer.soundManager,
+                    requestQueueManager = appContainer.requestQueueManager
+                ) as T
+            }
+        })[MainViewModel::class.java]
+        Log.d(TAG, "[PERF] ViewModel init: ${System.currentTimeMillis() - vmStart} ms")
+
         checkPermissions()
+        Log.d(TAG, "[PERF] Activity onCreate END (total): ${System.currentTimeMillis() - activityStart} ms")
 
         setContent {
             MaterialTheme {
@@ -70,8 +83,6 @@ class MainActivity : ComponentActivity() {
                 val isDetailedMode by viewModel.isDetailedMode.collectAsStateWithLifecycle()
                 val currentService by viewModel.currentService.collectAsStateWithLifecycle()
                 val showSettings by viewModel.showSettings.collectAsStateWithLifecycle()
-
-                // Подписка на результаты анализа для озвучки уже внутри ViewModel
 
                 CameraScreen(
                     hasPermission = hasCameraPermission,
@@ -106,7 +117,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Ловим нажатие Bluetooth-кнопки
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if ((keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
                     keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) &&
@@ -260,13 +270,11 @@ fun CameraScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Интеграция CameraX через AndroidView
         AndroidView(
             factory = { ctx ->
                 val previewView = androidx.camera.view.PreviewView(ctx).apply {
                     scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
                 }
-                // Делегируем настройку камеры менеджеру
                 cameraManager.bindCamera(previewView, lifecycleOwner)
                 previewView
             },

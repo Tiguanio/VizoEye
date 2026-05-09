@@ -13,7 +13,6 @@ import com.example.vizoeye.TtsManager
 import com.example.vizoeye.data.local.RequestQueueManager
 import com.example.vizoeye.domain.model.AnalysisResult
 import com.example.vizoeye.domain.usecase.AnalyzeImageUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,10 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import javax.inject.Inject
 
-@HiltViewModel
-class MainViewModel @Inject constructor(
+class MainViewModel(
     private val analyzeImageUseCase: AnalyzeImageUseCase,
     val ttsManager: TtsManager,
     private val soundManager: SoundManager,

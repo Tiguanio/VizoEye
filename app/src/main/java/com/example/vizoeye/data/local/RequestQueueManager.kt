@@ -4,13 +4,10 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 
 private const val TAG = "RequestQueueManager"
 
@@ -21,9 +18,8 @@ data class QueuedRequest(
     val timestamp: Long
 )
 
-@Singleton
-class RequestQueueManager @Inject constructor(
-    @ApplicationContext private val context: Context
+class RequestQueueManager(
+    private val context: Context
 ) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
