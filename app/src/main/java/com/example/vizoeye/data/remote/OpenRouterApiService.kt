@@ -12,20 +12,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
-import java.util.concurrent.TimeUnit
 
 class OpenRouterApiService(
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val httpClient: OkHttpClient
 ) {
     companion object {
         private const val TAG = "OpenRouterApi"
     }
-
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     suspend fun analyzeImage(imageFile: File, isDetailedMode: Boolean): String? {
         val base64Image = encodeImageToBase64(imageFile)
@@ -33,7 +27,7 @@ class OpenRouterApiService(
         val prompt = if (isDetailedMode) {
             "Опиши подробно что изображено на фотографии. ВНИМАНИЕ: если на фото есть текст, сначала прочитай весь текст дословно, потом опиши остальное содержимое. Если это документ с несколькими страницами, опиши что видишь и перечисли основные разделы. Ответ на русском языке."
         } else {
-            "Опиши кратко что на фото. Только главное объекты и люди. ВНИМАНИЕ: если на фото есть текст, прочитай только основные слова и фразы. Ответ на русском языке, максимально коротко."
+            "Опиши кратко что на фото. Только главные объекты и люди. ВНИМАНИЕ: если на фото есть текст, прочитай только основные слова и фразы. Ответ на русском языке, максимально коротко."
         }
 
         val jsonBody = JSONObject().apply {
@@ -79,8 +73,6 @@ class OpenRouterApiService(
             }
 
             val responseBody = response.body?.string()
-            Log.d(TAG, "OpenRouter Response: $responseBody")
-            
             val jsonResponse = JSONObject(responseBody ?: "")
             jsonResponse
                 .getJSONArray("choices")

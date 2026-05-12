@@ -12,20 +12,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
-import java.util.concurrent.TimeUnit
 
 class GeminiApiService(
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val httpClient: OkHttpClient
 ) {
     companion object {
         private const val TAG = "GeminiApi"
     }
-
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     suspend fun analyzeImage(imageFile: File, isDetailedMode: Boolean): String {
         val base64Image = encodeImageToBase64(imageFile)
@@ -74,8 +68,7 @@ class GeminiApiService(
 
         val responseBody = response.body?.string()
         val jsonResponse = JSONObject(responseBody ?: "")
-        
-        // Проверка на наличие ошибок в ответе Gemini (иногда они приходят в поле error даже при 200 OK)
+
         if (jsonResponse.has("error")) {
             val error = jsonResponse.getJSONObject("error")
             throw Exception("Gemini Error: ${error.getString("message")}")
