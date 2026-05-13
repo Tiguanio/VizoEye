@@ -85,6 +85,13 @@ class TtsManager(private val context: Context) {
         _isSpeaking.value = false
     }
 
+    fun stop() {
+        textToSpeech?.stop()
+        _isPaused.value = false
+        _isSpeaking.value = false
+        Log.d(TAG, "TTS stopped")
+    }
+
     fun resume(text: String) {
         _isPaused.value = false
         speak(text)

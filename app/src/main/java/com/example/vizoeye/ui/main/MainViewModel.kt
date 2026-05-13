@@ -8,24 +8,32 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vizoeye.AiServices
+import com.example.vizoeye.CameraManager
 import com.example.vizoeye.SoundManager
 import com.example.vizoeye.TtsManager
 import com.example.vizoeye.data.local.RequestQueueManager
+import com.example.vizoeye.data.repository.AiServiceRepository
 import com.example.vizoeye.domain.model.AnalysisResult
 import com.example.vizoeye.domain.usecase.AnalyzeImageUseCase
+import com.example.vizoeye.domain.usecase.VoiceAnalyzeUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainViewModel(
     private val analyzeImageUseCase: AnalyzeImageUseCase,
+    private val voiceAnalyzeUseCase: VoiceAnalyzeUseCase,
     val ttsManager: TtsManager,
     private val soundManager: SoundManager,
-    private val requestQueueManager: RequestQueueManager
+    private val requestQueueManager: RequestQueueManager,
+    private val aiServiceRepository: AiServiceRepository,
+    private val cameraManager: CameraManager
 ) : ViewModel() {
 
     companion object {
@@ -42,11 +50,9 @@ class MainViewModel(
     private val _isAnalyzing = MutableStateFlow(false)
     val isAnalyzing: StateFlow<Boolean> = _isAnalyzing.asStateFlow()
 
-    private val _isDetailedMode = MutableStateFlow(false)
-    val isDetailedMode: StateFlow<Boolean> = _isDetailedMode.asStateFlow()
-
-    private val _currentService = MutableStateFlow(AiServices.getCurrentService())
-    val currentService: StateFlow<AiServices.AiService> = _currentService.asStateFlow()
+    // Используем StateFlow из репозитория для реактивного обновления при смене провайдера
+    val currentService: StateFlow<AiServices.AiService> = aiServiceRepository.currentProvider
+        .stateIn(viewModelScope, SharingStarted.Lazily, aiServiceRepository.getCurrentProviderSync())
 
     private val _hasCameraPermission = MutableStateFlow(false)
     val hasCameraPermission: StateFlow<Boolean> = _hasCameraPermission.asStateFlow()
@@ -54,13 +60,33 @@ class MainViewModel(
     private val _showSettings = MutableStateFlow(false)
     val showSettings: StateFlow<Boolean> = _showSettings.asStateFlow()
 
-    private val _isOfflineMode = MutableStateFlow(false)
-    val isOfflineMode: StateFlow<Boolean> = _isOfflineMode.asStateFlow()
+    // История последних 3-х запросов (для контекста)
+    data class ChatMessage(val role: String, val content: String)
+    private val contextHistory = mutableListOf<ChatMessage>()
 
-    val queueSize: StateFlow<Int> = requestQueueManager.queueSize
-    val isProcessingQueue: StateFlow<Boolean> = requestQueueManager.isProcessing
+    private fun addToContext(question: String, answer: String) {
+        if (question.isBlank() || answer.isBlank()) return
+        
+        contextHistory.add(ChatMessage("user", question))
+        contextHistory.add(ChatMessage("assistant", answer))
 
-    private val _isProcessingQueueInternal = MutableStateFlow(false)
+        // Храним только последние 3 пары (6 сообщений)
+        if (contextHistory.size > 6) {
+            contextHistory.subList(0, contextHistory.size - 6).clear()
+        }
+    }
+
+    private fun getContextPrompt(): String {
+        if (contextHistory.isEmpty()) return ""
+        
+        val sb = StringBuilder("История нашего диалога:\n")
+        contextHistory.forEach { msg ->
+            val roleRu = if (msg.role == "user") "Я спросил" else "Ты ответил"
+            sb.append("$roleRu: ${msg.content}\n")
+        }
+        sb.append("\nОсновываясь на этой истории, ответь на новый вопрос:")
+        return sb.toString()
+    }
 
     // Проверка разрешений
     fun checkPermissions(context: Context) {
@@ -76,116 +102,129 @@ class MainViewModel(
                 grantResults.all { it == PackageManager.PERMISSION_GRANTED }
     }
 
-    // Переключение режима детализации
-    fun toggleDetailedMode() {
-        _isDetailedMode.value = !_isDetailedMode.value
-        _status.value = if (_isDetailedMode.value) "Режим: ПОДРОБНЫЙ" else "Режим: КРАТКИЙ"
-        Log.d(TAG, "Detailed mode changed to: ${_isDetailedMode.value}")
-    }
-
-    // Переключение ИИ-сервиса
-    fun switchService() {
-        val newService = AiServices.switchToNextService()
-        _currentService.value = newService
-        Log.d(TAG, "AI Service switched to: ${newService.displayName}")
-    }
-
     // Открытие/закрытие настроек
     fun setShowSettings(show: Boolean) {
         _showSettings.value = show
     }
 
-    // Проверка сети и обновление статуса оффлайн-режима
-    fun checkNetworkStatus() {
-        _isOfflineMode.value = !requestQueueManager.isNetworkAvailable()
-        if (!_isOfflineMode.value && requestQueueManager.queueSize.value > 0) {
-            processQueuedRequests()
-        }
-    }
-
-    // Обработка queued запросов
-    private fun processQueuedRequests() {
-        if (_isProcessingQueueInternal.value || !requestQueueManager.isNetworkAvailable()) return
-
+    // Переключение AI сервиса
+    fun switchAiService() {
         viewModelScope.launch {
-            _isProcessingQueueInternal.value = true
-            while (requestQueueManager.queueSize.value > 0 && requestQueueManager.isNetworkAvailable()) {
-                val request = requestQueueManager.getNextRequest()
-                if (request == null) break
-
-                try {
-                    val imageFile = File(request.imagePath)
-                    if (!imageFile.exists()) {
-                        Log.w(TAG, "Queued image file not found: ${request.imagePath}")
-                        continue
-                    }
-
-                    _status.value = "Обработка отложенного запроса..."
-                    soundManager.playStartSound()
-
-                    val result = withContext(Dispatchers.IO) {
-                        analyzeImageUseCase(imageFile, request.isDetailedMode, _currentService.value)
-                    }
-
-                    handleAnalysisResult(result)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to process queued request: ${request.id}", e)
-                    soundManager.playErrorSound()
-                }
-            }
-            _isProcessingQueueInternal.value = false
+            aiServiceRepository.switchProvider()
+            val newService = aiServiceRepository.getCurrentProviderSync()
+            ttsManager.speak("Переключено на ${newService.displayName}")
+            Log.d(TAG, "AI Service switched to: ${newService.name}")
         }
     }
 
-    // Анализ изображения
-    fun analyzeImage(imageFile: File) {
-        if (_isAnalyzing.value) {
-            Log.d(TAG, "analyzeImage: анализ уже идет, игнорируем")
-            return
-        }
+    // --- Режимы работы ---
 
-        val startTime = System.currentTimeMillis()
-        Log.d(TAG, "[PERF] Start analyzeImage")
+    /**
+     * Режим 1: КРАТКО
+     */
+    fun analyzeBriefly(imageFile: File) {
+        performImageAnalysis(imageFile, isDetailedMode = false)
+    }
 
-        // Проверяем сеть перед началом
-        checkNetworkStatus()
+    /**
+     * Режим 2: ПОДРОБНО
+     */
+    fun analyzeDetailed(imageFile: File) {
+        performImageAnalysis(imageFile, isDetailedMode = true)
+    }
 
-        if (_isOfflineMode.value) {
-            // Нет сети — добавляем в очередь
-            requestQueueManager.addToQueue(imageFile, _isDetailedMode.value)
-            _status.value = "Нет сети. Запрос добавлен в очередь (${requestQueueManager.queueSize.value})"
-            soundManager.playErrorSound()
-            Log.d(TAG, "Added to offline queue: ${imageFile.absolutePath}")
-            return
-        }
+    private fun performImageAnalysis(imageFile: File, isDetailedMode: Boolean) {
+        if (_isAnalyzing.value) return
 
         viewModelScope.launch {
             try {
                 _isAnalyzing.value = true
                 _status.value = "Анализирую изображение..."
                 soundManager.playStartSound()
-                Log.d(TAG, "Начало анализа файла: ${imageFile.absolutePath}")
-
-                val beforeApiCall = System.currentTimeMillis()
-                Log.d(TAG, "[PERF] Time to prepare (permissions, UI): ${beforeApiCall - startTime}ms")
 
                 val result = withContext(Dispatchers.IO) {
-                    analyzeImageUseCase(imageFile, _isDetailedMode.value, _currentService.value)
+                    analyzeImageUseCase(imageFile, isDetailedMode)
                 }
 
-                val afterApiCall = System.currentTimeMillis()
-                Log.d(TAG, "[PERF] API/Model execution time: ${afterApiCall - beforeApiCall}ms")
-
                 handleAnalysisResult(result)
-                Log.d(TAG, "[PERF] Total time: ${System.currentTimeMillis() - startTime}ms")
             } catch (e: Exception) {
-                _status.value = "Критическая ошибка: ${e.message}"
+                _status.value = "Ошибка: ${e.message}"
                 soundManager.playErrorSound()
-                Log.e(TAG, "Unexpected error", e)
+                Log.e(TAG, "Analysis error", e)
             } finally {
                 _isAnalyzing.value = false
             }
         }
+    }
+
+    /**
+     * Режим 3: ВОПРОС (Голосовой + Фото)
+     */
+    fun startVoiceQuestion() {
+        if (_isAnalyzing.value) {
+            _isAnalyzing.value = false
+            _status.value = "Отменено"
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _isAnalyzing.value = true
+                _status.value = "Делаю снимок..."
+                soundManager.playStartSound()
+
+                // 1. Делаем снимок
+                val imageFile = withContext(Dispatchers.IO) {
+                    cameraManager.takePicture()
+                }
+
+                if (imageFile == null) {
+                    _status.value = "Ошибка камеры"
+                    soundManager.playErrorSound()
+                    _isAnalyzing.value = false
+                    return@launch
+                }
+
+                _status.value = "Слушаю ваш вопрос..."
+                ttsManager.speak("Задайте свой вопрос")
+
+                // 2. Запускаем распознавание и отправляем фото с вопросом в AI
+                val contextPrompt = getContextPrompt()
+                val result = voiceAnalyzeUseCase(imageFile, contextPrompt)
+
+                result.onSuccess { analysisResult ->
+                    if (analysisResult.answer.isNotBlank()) {
+                        _description.value = analysisResult.answer
+                        _status.value = "Ответ получен"
+                        ttsManager.speak(analysisResult.answer)
+                        
+                        // Сохраняем в контекст для следующих вопросов
+                        addToContext(analysisResult.question, analysisResult.answer)
+                    } else {
+                        _status.value = "Пустой ответ от AI"
+                        soundManager.playErrorSound()
+                    }
+                }.onFailure { error ->
+                    _status.value = "Ошибка: ${error.message}"
+                    soundManager.playErrorSound()
+                }
+            } catch (e: Exception) {
+                _status.value = "Ошибка: ${e.message}"
+                soundManager.playErrorSound()
+                Log.e(TAG, "Voice question error", e)
+            } finally {
+                _isAnalyzing.value = false
+            }
+        }
+    }
+
+    /**
+     * Принудительная остановка голосовой записи (например, по кнопке громкости)
+     */
+    fun stopVoiceQuestion() {
+        _status.value = "Запись прервана"
+        soundManager.playShutterSound()
+        _isAnalyzing.value = false
     }
 
     private fun handleAnalysisResult(result: AnalysisResult) {
@@ -194,7 +233,6 @@ class MainViewModel(
             _status.value = "Анализ завершен"
             soundManager.playSuccessSound()
             Log.d(TAG, "Результат получен: ${result.description.take(50)}...")
-            // Автоматическая озвучка результата
             ttsManager.speak(result.description)
         } else {
             _status.value = "Ошибка: ${result.errorMessage}"

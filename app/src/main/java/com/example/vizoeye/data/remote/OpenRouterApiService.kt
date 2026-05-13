@@ -51,6 +51,53 @@ class OpenRouterApiService(
             })
         }
 
+        return sendRequest(jsonBody)
+    }
+
+    suspend fun analyzeText(prompt: String): String? {
+        val model = ApiConfig.OPENROUTER_MODEL
+        val jsonBody = JSONObject().apply {
+            put("model", model)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", prompt)
+                })
+            })
+        }
+
+        return sendRequest(jsonBody)
+    }
+
+    suspend fun analyzeImageWithPrompt(imageFile: File, prompt: String): String? {
+        val base64Image = encodeImageToBase64(imageFile)
+        val model = ApiConfig.OPENROUTER_MODEL
+
+        val jsonBody = JSONObject().apply {
+            put("model", model)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("type", "text")
+                            put("text", prompt)
+                        })
+                        put(JSONObject().apply {
+                            put("type", "image_url")
+                            put("image_url", JSONObject().apply {
+                                put("url", "data:image/jpeg;base64,$base64Image")
+                            })
+                        })
+                    })
+                })
+            })
+        }
+
+        return sendRequest(jsonBody)
+    }
+
+    private suspend fun sendRequest(jsonBody: JSONObject): String? {
         return try {
             val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
             val apiKey = settingsManager.openRouterApiKey

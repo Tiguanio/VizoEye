@@ -5,8 +5,12 @@ import com.example.vizoeye.data.local.RequestQueueManager
 import com.example.vizoeye.data.remote.GeminiApiService
 import com.example.vizoeye.data.remote.OpenRouterApiService
 import com.example.vizoeye.data.repository.AiRepositoryImpl
+import com.example.vizoeye.data.repository.AiServiceRepository
+import com.example.vizoeye.data.voice.AndroidSpeechRecognizer
 import com.example.vizoeye.domain.repository.AiRepository
 import com.example.vizoeye.domain.usecase.AnalyzeImageUseCase
+import com.example.vizoeye.domain.usecase.VoiceAnalyzeUseCase
+import com.example.vizoeye.domain.voice.SpeechSource
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
@@ -31,16 +35,23 @@ class AppContainer(private val context: Context) {
     val ttsManager by lazy { TtsManager(context) }
     val cameraManager by lazy { CameraManager(context) }
     val requestQueueManager by lazy { RequestQueueManager(context) }
+    val speechSource: SpeechSource by lazy { AndroidSpeechRecognizer(context) }
 
     // Network
     private val openRouterApiService by lazy { OpenRouterApiService(settingsManager, httpClient) }
     private val geminiApiService by lazy { GeminiApiService(settingsManager, httpClient) }
 
-    // Repository
-    private val aiRepository: AiRepository by lazy {
-        AiRepositoryImpl(openRouterApiService, geminiApiService)
+    // AI Service Repository (управление выбором провайдера)
+    val aiServiceRepository by lazy {
+        AiServiceRepository(settingsManager, openRouterApiService, geminiApiService)
     }
 
-    // UseCase
+    // Repository
+    private val aiRepository: AiRepository by lazy {
+        AiRepositoryImpl(aiServiceRepository, openRouterApiService, geminiApiService)
+    }
+
+    // UseCases
     val analyzeImageUseCase by lazy { AnalyzeImageUseCase(aiRepository) }
+    val voiceAnalyzeUseCase by lazy { VoiceAnalyzeUseCase(speechSource, aiRepository, ttsManager) }
 }

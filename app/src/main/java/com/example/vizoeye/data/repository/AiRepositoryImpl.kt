@@ -8,17 +8,18 @@ import com.example.vizoeye.data.remote.OpenRouterApiService
 import java.io.File
 
 class AiRepositoryImpl(
+    private val aiServiceRepository: AiServiceRepository,
     private val openRouterService: OpenRouterApiService,
     private val geminiService: GeminiApiService
 ) : AiRepository {
 
     override suspend fun analyzeImage(
         imageFile: File,
-        isDetailedMode: Boolean,
-        service: AiServices.AiService
+        isDetailedMode: Boolean
     ): AnalysisResult {
         return try {
-            val result = when (service) {
+            val provider = aiServiceRepository.getCurrentProviderSync()
+            val result = when (provider) {
                 AiServices.AiService.GEMINI -> geminiService.analyzeImage(imageFile, isDetailedMode)
                 AiServices.AiService.OPENROUTER -> openRouterService.analyzeImage(imageFile, isDetailedMode)
             }
@@ -41,6 +42,44 @@ class AiRepositoryImpl(
                 isSuccess = false,
                 errorMessage = e.message
             )
+        }
+    }
+
+    override suspend fun analyzeText(prompt: String): Result<String> {
+        return try {
+            val provider = aiServiceRepository.getCurrentProviderSync()
+            val result = when (provider) {
+                AiServices.AiService.GEMINI -> geminiService.analyzeText(prompt)
+                AiServices.AiService.OPENROUTER -> openRouterService.analyzeText(prompt)
+            }
+
+            if (result != null) {
+                Result.success(result.trim())
+            } else {
+                Result.failure(Exception("Пустой ответ от API"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun analyzeImageWithText(imageFile: File, userQuestion: String): Result<String> {
+        return try {
+            val provider = aiServiceRepository.getCurrentProviderSync()
+            val prompt = "Ответь на вопрос пользователя об изображении кратко и по делу на русском языке. Вопрос: $userQuestion"
+            
+            val result = when (provider) {
+                AiServices.AiService.GEMINI -> geminiService.analyzeImageWithPrompt(imageFile, prompt)
+                AiServices.AiService.OPENROUTER -> openRouterService.analyzeImageWithPrompt(imageFile, prompt)
+            }
+
+            if (result != null) {
+                Result.success(result.replace(Regex("[*#]"), "").trim())
+            } else {
+                Result.failure(Exception("Пустой ответ от API"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 }

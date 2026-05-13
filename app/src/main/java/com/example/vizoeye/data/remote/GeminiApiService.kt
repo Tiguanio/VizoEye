@@ -48,6 +48,52 @@ class GeminiApiService(
             })
         }
 
+        return sendRequest(jsonBody)
+    }
+
+    suspend fun analyzeText(prompt: String): String {
+        val jsonBody = JSONObject().apply {
+            put("contents", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", prompt)
+                        })
+                    })
+                })
+            })
+        }
+
+        return sendRequest(jsonBody)
+    }
+
+    suspend fun analyzeImageWithPrompt(imageFile: File, prompt: String): String {
+        val base64Image = encodeImageToBase64(imageFile)
+        
+        val jsonBody = JSONObject().apply {
+            put("contents", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", prompt)
+                        })
+                        put(JSONObject().apply {
+                            put("inline_data", JSONObject().apply {
+                                put("mime_type", "image/jpeg")
+                                put("data", base64Image)
+                            })
+                        })
+                    })
+                })
+            })
+        }
+
+        return sendRequest(jsonBody)
+    }
+
+    private suspend fun sendRequest(jsonBody: JSONObject): String {
         val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
         val apiKey = settingsManager.geminiApiKey
         val requestUrl = "${ApiConfig.GEMINI_URL}?key=$apiKey"
