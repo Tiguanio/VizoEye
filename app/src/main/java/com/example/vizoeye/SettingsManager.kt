@@ -23,7 +23,13 @@ class SettingsManager(private val context: Context) {
         private const val KEY_GEMINI_API = "gemini_api_key"
         private const val KEY_OPENROUTER_API = "openrouter_api_key"
         private const val KEY_AI_PROVIDER = "ai_provider"
+        private const val KEY_TTS_SPEED = "tts_speed"
     }
+
+    // --- TTS Settings ---
+    var ttsSpeed: Float
+        get() = prefs.getFloat(KEY_TTS_SPEED, 1.0f)
+        set(value) = prefs.edit().putFloat(KEY_TTS_SPEED, value).apply()
 
     // --- API Keys ---
     var geminiApiKey: String

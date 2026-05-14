@@ -32,7 +32,7 @@ class AppContainer(private val context: Context) {
     // Managers
     val settingsManager by lazy { SettingsManager(context) }
     val soundManager by lazy { SoundManager(context) }
-    val ttsManager by lazy { TtsManager(context) }
+    val ttsManager by lazy { TtsManager(context, settingsManager) }
     val cameraManager by lazy { CameraManager(context) }
     val requestQueueManager by lazy { RequestQueueManager(context) }
     val speechSource: SpeechSource by lazy { AndroidSpeechRecognizer(context) }

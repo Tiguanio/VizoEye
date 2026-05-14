@@ -337,20 +337,36 @@ fun CameraScreen(
         ) {
             // Регулятор скорости TTS
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .semantics { contentDescription = "Регулировка скорости речи. Текущая скорость: %.1fx".format(currentSpeed) },
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = onSpeedDown, modifier = Modifier.size(48.dp)) {
-                    Text("-")
+                Button(
+                    onClick = onSpeedDown,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .semantics { contentDescription = "Уменьшить скорость речи" }
+                ) {
+                    Text("-", fontSize = androidx.compose.ui.unit.TextUnit(20f, androidx.compose.ui.unit.TextUnitType.Sp))
                 }
                 Text(
                     text = "Скорость: %.1fx".format(currentSpeed),
                     color = androidx.compose.ui.graphics.Color.White,
-                    fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp)
+                    fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    modifier = Modifier.semantics { contentDescription = "Текущая скорость речи: %.1fx".format(currentSpeed) }
                 )
-                Button(onClick = onSpeedUp, modifier = Modifier.size(48.dp)) {
-                    Text("+")
+                Button(
+                    onClick = onSpeedUp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .semantics { contentDescription = "Увеличить скорость речи" }
+                ) {
+                    Text("+", fontSize = androidx.compose.ui.unit.TextUnit(20f, androidx.compose.ui.unit.TextUnitType.Sp))
                 }
             }
 

@@ -18,6 +18,7 @@ import com.example.vizoeye.domain.usecase.AnalyzeImageUseCase
 import com.example.vizoeye.domain.usecase.VoiceAnalyzeUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

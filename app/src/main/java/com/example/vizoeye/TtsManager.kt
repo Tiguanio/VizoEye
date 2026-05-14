@@ -10,7 +10,10 @@ import java.util.Locale
 
 private const val TAG = "TtsManager"
 
-class TtsManager(private val context: Context) {
+class TtsManager(
+    private val context: Context,
+    private val settingsManager: SettingsManager
+) {
 
     private var textToSpeech: TextToSpeech? = null
     private var speakStartTime: Long = 0L
@@ -22,17 +25,19 @@ class TtsManager(private val context: Context) {
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused
 
-    private val _speechRate = MutableStateFlow(1.0f)
+    private val _speechRate = MutableStateFlow(settingsManager.ttsSpeed)
     val speechRate: StateFlow<Float> = _speechRate
 
     init {
         initializeTTS()
+        textToSpeech?.setSpeechRate(_speechRate.value)
     }
 
     fun changeSpeed(increase: Boolean) {
         val current = _speechRate.value
         val newRate = if (increase) current + 0.5f else current - 0.5f
         _speechRate.value = newRate.coerceIn(0.5f, 3.0f)
+        settingsManager.ttsSpeed = _speechRate.value
         textToSpeech?.setSpeechRate(_speechRate.value)
         Log.d(TAG, "Speech rate changed to: ${_speechRate.value}")
     }
