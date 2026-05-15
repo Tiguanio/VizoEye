@@ -4,7 +4,7 @@
 
 *VizoEye — Твои глаза в мире ИИ.*
 
----
+--- https://www.youtube.com/shorts/FeSkoNhPaK4
 
 ## ✨ Основные функции
 - **Три режима**:
